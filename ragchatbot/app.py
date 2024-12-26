@@ -1,9 +1,21 @@
 import os
 from dotenv import load_dotenv
 import chromadb
+from flask_cors import CORS
 from openai import OpenAI
 from chromadb.utils import embedding_functions
 from pptx import Presentation
+from flask import Flask, render_template, request, jsonify
+from docx import Document
+
+
+app = Flask(__name__)
+
+
+CORS(app)
+
+UPLOAD_FOLDER = './lectures'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 # Loading environment variables from env file
 load_dotenv()
@@ -58,6 +70,13 @@ def load_documents_from_directory(directory_path):
                     if hasattr(shape, "text"):
                         text += shape.text + "\n"
             documents.append({"id": filename, "text": text})
+        elif filename.endswith(".docx"):
+            docx_path = os.path.join(directory_path, filename)
+            document = Document(docx_path)
+            text = ""
+            for paragraph in document.paragraphs:
+                text += paragraph.text + "\n"
+            documents.append({"id": filename, "text": text})
     return documents
 
 # Function to split text into chunks
@@ -71,7 +90,7 @@ def split_text(text, chunk_size=1000, chunk_overlap=20):
     return chunks
 
 
-directory_path="./lectures"
+directory_path="./immigration_documents"
 documents = load_documents_from_directory(directory_path)
 
 # Split documents into chunks
@@ -123,8 +142,8 @@ def query_documents(question, n_results=2):
 def generate_response(question, relevant_chunks):
     context = "\n\n".join(relevant_chunks)
     prompt = (
-        "You are an assistant for question-answering tasks. Use the following pieces of "
-        "retrieved context to answer the question. If you don't know the answer, say that you "
+        "You are personal teaching assistant for an instructor/teacher/professor. Use the following pieces of "
+        "retrieved context to generate stuff like questions, rubrics or things related to the topic. If you don't know the answer, say that you "
         "don't know. Use three sentences maximum and keep the answer concise."
         "\n\nContext:\n" + context + "\n\nQuestion:\n" + question
     )
@@ -146,8 +165,31 @@ def generate_response(question, relevant_chunks):
     answer = response.choices[0].message
     return answer
 
-question = "Generate 2 mcq from the topic"
-relevant_chunks = query_documents(question)
-answer = generate_response(question, relevant_chunks)
+# question = "Generate 2 mcq from the topic"
+# relevant_chunks = query_documents(question)
+# answer = generate_response(question, relevant_chunks)
 
-print(answer.content)
+# print(answer.content)
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
+@app.route('/generate', methods=['POST'])
+def generate():
+    if request.is_json:
+        data = request.get_json()
+        question = data.get('question')
+        supportType = data.get('supportType')
+        modified_question = f"{supportType}: {question}"
+        relevant_chunks = query_documents(modified_question)  # Implement this function as needed
+        answer = generate_response(modified_question, relevant_chunks)
+        return jsonify(answer=answer.content)
+    else:
+        return jsonify({"error": "Unsupported Media Type"}), 415
+
+if __name__ == '__main__':
+    if not os.path.exists(UPLOAD_FOLDER):
+        os.makedirs(UPLOAD_FOLDER)
+    app.run(debug=True)
